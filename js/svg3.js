@@ -11,6 +11,15 @@ SVGUtility.createTextNode = function(text,svg){
     return node;
 }
 
+SVGUtility.createRectange = function(x,y,width,height,svg){
+    var rect = document.createElementNS(SVGUtility.namespace,'rect');
+    rect.setAttribute('x',x);
+    rect.setAttribute('y',y); //as rect should be drawn at the top of the text
+    rect.setAttribute('width',width);
+    rect.setAttribute('height',height); //bug!
+    return rect;
+}
+
 SVGUtility.measure = function(node,svg){  
     svg.appendChild(node);
     var width = node.getBBox().width;
@@ -44,6 +53,21 @@ CharacterNode.prototype = {
         this.height = node.getBBox().height;
         this.svg.removeChild(node);
         
+    },
+    containsPoint:function(x,y){  //find the character based on the mouse position.
+        if (this.x && this.y && this.width){  //BUG not checking the first char??
+            //console.log('mouse x =' + x + "this x ="+ this.x);
+            if(x >= this.x && x<=this.x + this.width && y <= this.y && y >= this.y - 15){  //height is a bug as we have hard coded 15
+                return this;
+                
+            }else{
+                return null; // we cant find the character
+            }
+        }
+    },
+    positionCursor:function(){
+        var rect = SVGUtility.createRectange(this.x,this.y-15,this.width,15); //BUG + hardcoded height
+        svg.appendChild(rect);
     }
 }
 
@@ -69,6 +93,20 @@ Block.prototype = {
             currentNode.previousSibling = previousNode;
             previousNode = currentNode;
         }
+    },
+    findCharacter:function(x,y){
+        
+        console.log('looking for character');
+        var currentNode = this.rootNode;
+        do{
+            //console.log('checking character:'+currentNode.char + " at position" + currentNode.x + "," + currentNode.y);
+            if(currentNode.containsPoint(x,y)){
+                console.log('found character:'+currentNode.char);
+                currentNode.positionCursor();
+                return;
+            }
+            currentNode = currentNode.nextSibling;
+        }while(currentNode !== null)
     }
 }
   
@@ -112,7 +150,9 @@ Render.prototype = {
                 currentNode = currentChunk.endingNode.nextSibling;
             }
             else if(currentChunk.chunkWidth < this.containerWidth - xPosInLine){
+                //we need to update the positions of the items in this chunk
                 this.createNode(currentChunk.text,xPosInLine,(currentLine+1)*15);
+                this.updateCharacterCoordintates(currentChunk,xPosInLine,(currentLine+1)*15);
                 currentNode = currentChunk.endingNode.nextSibling;
                 xPosInLine += currentChunk.chunkWidth;
                 currentWordsOnLine++;
@@ -135,6 +175,9 @@ Render.prototype = {
                     currentWidth += currentNode.width;
                     nodeText += currentNode.char;
                     currentNode = currentNode.nextSibling; 
+                    //we can update the x,y positions at this point to save doing it later.
+                    currentNode.x = currentWidth;
+                    currentNode.y = (currentLine+1)*15; //this needs moving as it is repeated...
                 
                 }while(currentNode !== currentChunk.endingNode && currentWidth < this.containerWidth);                
                 this.createNode(nodeText,0,(currentLine+1)*15);
@@ -151,8 +194,35 @@ Render.prototype = {
         node.setAttribute('y',y);
         node.setAttribute('id',this.id)
         svg.appendChild(node);
+    },
+    updateCharacterCoordintates(chunk,startX,startY){
+        
+        var offset = 0;
+        
+        chunk.startingNode.x = startX + offset;
+        chunk.startingNode.y = startY;
+        
+        //get the first node - it may be the last e.g for the word a
+        
+        while(chunk.startingNode.nextSibling && chunk.startingNode !== chunk.endingNode){
+            
+            offset += chunk.startingNode.width; 
+            
+            chunk.startingNode = chunk.startingNode.nextSibling;
+            
+            chunk.startingNode.x = startX + offset;
+            chunk.startingNode.y = startY;
+            
+           
+        }
     }
 
+}
+    
+function coordinateTransform(screenPoint, someSvgObject)
+{
+  var CTM = someSvgObject.getScreenCTM();
+  return screenPoint.matrixTransform( CTM.inverse() );
 }
 
 var svg = document.getElementById('svg');
@@ -162,13 +232,28 @@ var render = new Render(block,svg);
 render.placeWords();
 var self = this;
 var id = 1;
-svg.addEventListener('click',function(){
-    //render.containerWidth += 10;
-    //while (self.svg.lastChild) {
-        //self.svg.removeChild(self.svg.lastChild);
-    //} 
-    //render.placeWords();
-    svg.removeChild(document.getElementById(id));
-    id++;
-
+svg.addEventListener('click',function(e){
+    //see which letter was clicked on
+    
+    //get the x and y that was clicked by the mouse and covert them into the svg space
+    
+    var mouseX = e.clientX;
+    var mouseY = e.clientY;
+    
+    //make a transformation matrix
+    
+    var point = svg.createSVGPoint();
+    point.x = mouseX;
+    point.y = mouseY;
+    
+    var point2 = self.coordinateTransform(point,svg);
+    console.log(point);
+    console.log(point2);
+    
+    
+    var node = block.rootNode;
+    
+    console.log('finding character...')
+    self.block.findCharacter(point2.x,point2.y); 
+    
 })
